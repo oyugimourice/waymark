@@ -1,0 +1,29 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+    build:
+      commands:
+        # These land in .env before `nuxt build` runs, so nuxt.config.ts's
+        # runtimeConfig defaults (evaluated at build time) pick them up —
+        # see the comment above `runtimeConfig` in nuxt.config.ts for why
+        # that matters on Amplify's Lambda-backed SSR compute. Configure
+        # the actual values as env vars on this Amplify app (Console ->
+        # Hosting -> Environment variables).
+        - echo "PUBLIC_URL=$PUBLIC_URL" >> .env
+        - echo "TWILIO_ACCOUNT_SID=$TWILIO_ACCOUNT_SID" >> .env
+        - echo "TWILIO_AUTH_TOKEN=$TWILIO_AUTH_TOKEN" >> .env
+        - echo "TWILIO_WHATSAPP_FROM=$TWILIO_WHATSAPP_FROM" >> .env
+        - echo "TRIGGER_SECRET_KEY=$TRIGGER_SECRET_KEY" >> .env
+        - echo "INTERNAL_API_SECRET=$INTERNAL_API_SECRET" >> .env
+        - NODE_OPTIONS=--max-old-space-size=4096 npm run build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - .nuxt/**/*
