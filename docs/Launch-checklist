@@ -1,0 +1,61 @@
+# Waymark — Launch Checklist
+
+**Author:** Oyugi Mourice · **Last updated:** 2026-10-07
+
+Everything below needs *your accounts or a decision*, so it could not be completed or verified during development.
+Work top to bottom; each item says how to know it is done.
+
+## A. Blockers
+
+- [ ] **Code provenance and licence.** The server integration originates from Sahil David's `aurora-app` repository, whose
+  commits contain no `LICENSE` file; this repository's `LICENSE` is an MIT licence in your name. Without an explicit
+  licence from the original author the default is "all rights reserved". Get written permission (or a licence) from him,
+  keep attribution, and resolve this before any public release or commercial use. *Done when:* permission is recorded
+  and attribution is in the repository.
+- [ ] **Legal review of `/privacy` and `/terms`.** They were written from what the code does and are not legal advice.
+  Confirm each statement, especially: the provider list (Meta, Twilio, Trigger.dev, Anthropic, AWS), retention at the
+  agent and providers, and governing law (intentionally omitted from the Terms). Check whether you must register with
+  Kenya's Office of the Data Protection Commissioner. *Done when:* a qualified reviewer has signed off.
+- [ ] **`WAYMARK_CONTACT_EMAIL`** is a mailbox you monitor (the build requires it).
+- [ ] **Production WhatsApp sender** approved by Meta (business verification, display name). The Twilio sandbox must not
+  be advertised.
+
+## B. Verify on real infrastructure
+
+- [ ] `npm run smoke -- https://<domain>` passes (25 checks locally, 26 over HTTPS).
+- [ ] Send a real WhatsApp text, link and photo; each gets a reply.
+- [ ] Response headers on `/` and `/privacy` include the CSP (`script-src 'none'`) and HSTS **on the live site**. If the
+  CDN serves the prerendered HTML without them, `customHttp.yml` is not being applied — check the Amplify headers page.
+- [ ] A second request to `/` shows CDN caching (`x-cache: Hit` or `age` header) — if not, pages are rendered by the
+  compute on every view; acceptable, but cost and latency are worse.
+- [ ] Trigger.dev idempotency: send the same message twice (replay the signed webhook) and confirm one run.
+- [ ] Break the agent on purpose (stop the task): the user receives the "please send it again" message.
+- [ ] A message sent > 24 h after the last user message makes `notify` return 422 with `twilioCode: 63016`.
+
+## C. Operations
+
+- [ ] Uptime check on `/api/ready`; error-log alarm; Twilio alerts (RUNBOOK §5).
+- [ ] **Spend caps** on the AI provider and Twilio (this is the main mitigation for residual risk R1).
+- [ ] CloudWatch log retention set (e.g. 30 days).
+- [ ] Trigger.dev and Twilio retention reviewed (R5).
+- [ ] GitHub: branch protection on `main` requiring CI, secret scanning + push protection, Dependabot alerts on.
+- [ ] Restrict who can read Amplify build artifacts/logs (secrets are baked into them).
+- [ ] Calendar reminder for **2026-12-01**: audit exceptions expire.
+
+## D. SEO and answer-engine visibility (after the site is live)
+
+- [ ] `PUBLIC_URL` is the final canonical domain (one domain; redirect www/non-www and http→https).
+- [ ] Verify the domain in Google Search Console and Bing Webmaster Tools; submit `/sitemap.xml`.
+- [ ] Run Google's Rich Results Test and the Schema.org validator on `/`.
+- [ ] Run Lighthouse (mobile) on `/`; run an automated accessibility check (axe). Neither was possible offline.
+- [ ] Preview the share card (`/og.png`) in WhatsApp, X/Twitter and LinkedIn.
+- [ ] Decide your policy toward AI crawlers (currently all allowed) — `robots.txt` is generated in `server/lib/seo.ts`.
+
+## E. Repository hygiene
+
+- [ ] Remove the committed build output from git: `git rm -r --cached node_modules .output .nuxt` and commit. To also
+  drop it from history (the repository is ~50 MB because of it), use `git filter-repo --invert-paths --path node_modules
+  --path .output --path .nuxt` — this preserves authorship and the rest of history.
+- [ ] Move `docs/mine.md` (a personal, fork-migration guide) out of the public repository.
+- [ ] Agent repository: adopt `server/lib/contracts.ts`, the new `notify` status semantics (ARCHITECTURE §5.2), and send
+  the user an apology when the agent itself fails.
