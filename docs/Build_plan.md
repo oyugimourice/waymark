@@ -2,7 +2,7 @@
 
 **Author:** Oyugi Mourice · **Last updated:** 2026-10-07 · Supersedes the status in [`Roadmap.md`](Roadmap.md).
 
-✅ built and verified · 📐 designed, not built · ⛔ blocked on a decision or an account only you have
+✅ built and verified in this repository · 🔧 needs you / your accounts (cannot be done or verified here)
 
 ## 1. At a glance
 
@@ -10,104 +10,63 @@
 | --- | --- | --- |
 | 0 | Repository hygiene, dependency health, quality gates | ✅ (one manual git step, §5) |
 | 1 | Stabilise the integration: validation, health, logging, tests, CI | ✅ |
-| 2 | WhatsApp experience: failure messages, photo handling | ✅ partly · 📐 acknowledgement, clarification (agent-side) |
+| 2 | WhatsApp experience: failure messages, photo handling | ✅ · 🔧 agent adopts the contract |
 | 3 | Public website with SEO and AEO | ✅ |
-| 4 | Security hardening and operations | ✅ partly · 📐 Secrets Manager, alarms as code |
-| 5 | Persistence | ⛔ needs ADR-004 |
-| 6 | Sign-in and saved-places web app | ⛔ needs Phase 5 and ADR-005 |
-| 7 | Abuse and cost controls (per-sender limits) | ⛔ needs Phase 5 (stopgap: provider spend caps) |
+| 4 | Security hardening and operations | ✅ · 🔧 live verification, Secrets Manager (optional) |
+| 5 | **Persistence** (PostgreSQL, migrations, encryption, erasure, export) | ✅ |
+| 6 | **Sign-in and saved-places web app** | ✅ · 🔧 agent must call `/api/internal/places` for it to fill |
+| 7 | **Abuse and cost controls** (per-sender + global limits) | ✅ · 🔧 provider spend caps |
 
-## 2. Phase detail
+## 2. What was built in this iteration (Phases 5–7)
 
-### Phase 0 — Foundations ✅
-* Dependencies: every advisory with a compatible fix was applied (axios, undici, the `ws` chain, vitest, and
-  `vue` / `@vue/server-renderer` 3.5.43, which fixed an SSR XSS advisory). Six distinct advisories remain, all in
-  Nuxt build/dev tooling (`braces`, `node-forge`, `simple-git`), none present in the deployed bundle, each with an
-  expiring exception ([ADR-007](DECISIONS.md#adr-007)).
-  Never run `npm audit fix --force` here: it proposes *downgrading* Nuxt to 3.15.1.
-* Lockfile verified reproducible with stock npm 10 (`npm ci`).
-* Branding unified (Waymark), package renamed, Node 22 pinned (`.nvmrc`, `engines`, compute runtime).
+* **Database:** 7 tables, constraints that do security work (`https`-only map links, coordinate ranges, length limits), forward-only
+  checksummed migrations with an advisory lock, `npm run db:migrate` / `db:status`, a protected GitHub workflow for production,
+  `/api/ready` that verifies connectivity **and** schema version.
+* **Privacy by design:** phone numbers stored as a keyed hash + AES-256-GCM ciphertext; no message text or photos in the
+  database; abuse-limit records are unlinked from accounts and pruned after ~48 h.
+* **Sign-in:** WhatsApp-initiated, passwordless, single-use, browser-bound, rate-limited (ADR-005).
+* **Web app (`/app`):** list, search, paginate, open in maps, remove, **download my data**, sign out, **delete my account**;
+  own strict CSP; XSS-proof rendering.
+* **Rate limits:** 20/hour and 100/day per sender, 5,000/day global, enforced before any paid work; notice once; fail-open on
+  database trouble (ADR-008).
+* **Agent endpoints:** `POST /api/internal/places` and `/capture-status`; [integration guide](AGENT-INTEGRATION.md).
+* **Docs and policies:** architecture (7 diagrams), threat model (29 controls), runbook, ADRs, **privacy policy and terms updated
+  to match what is stored**.
 
-### Phase 1 — Stabilise the integration ✅
-Config validation + build gate · `/api/health` and `/api/ready` · structured, PII-safe logging with request ids ·
-224 automated tests · ESLint + typecheck · GitHub Actions (CI, CodeQL, gitleaks, Dependabot) · local black-box
-smoke and end-to-end tests against a mock Trigger.dev API.
-*Not yet done:* confirming Trigger.dev idempotency against the **real** service (launch checklist B).
+## 3. Remaining work — all needs you
 
-### Phase 2 — WhatsApp experience
-✅ Failure messages when hand-off fails; clear message when a photo is unusable; bounded time budgets.
-📐 **Immediate acknowledgement** ("Looking into it…") — best sent by the agent as its first step via `notify`, so it
-adds no latency to the webhook. 📐 **Ambiguous-place clarification** and reply formatting — agent-side.
-*Acceptance:* a user always receives either an answer or an explanation within 2 minutes.
+1. **Agent adoption** (other repository): call `places` and `capture-status`; handle `notify`'s `422/429/5xx` semantics; apologise on failure.
+2. **Provision and verify real infrastructure** (managed PostgreSQL, Amplify, Twilio production sender, Trigger.dev production) and
+   tick the [launch checklist](LAUNCH-CHECKLIST.md) (§B items were impossible to run offline: client-IP header, CDN headers/caching,
+   real-phone sign-in, real Trigger.dev idempotency).
+3. **Legal review** and the **licence/provenance** question.
+4. **Optional, later:** Secrets Manager (ADR-001 exit path); key-rotation migration script; idempotency key for `notify`;
+   per-user copies of shared places (risk R7).
 
-### Phase 3 — Public website, SEO and AEO ✅
-Home, Privacy, Terms; zero-JS pages; strict CSP; JSON-LD; sitemap, robots, `llms.txt`; social card; icons; WCAG AA
-contrast enforced by test. Details in [`SEO-AEO.md`](SEO-AEO.md).
-*Needs from you:* contact email, legal review, final domain (launch checklist A and D).
-
-### Phase 4 — Security hardening and operations
-✅ Threat model with 17 tested controls ([`THREAT-MODEL.md`](THREAT-MODEL.md)); runbook; launch checklist; smoke test.
-📐 **Secrets Manager** (ADR-001 exit path) · 📐 **CloudWatch alarms as code** · 📐 **idempotency key for `notify`**.
-*Acceptance:* a secret can be rotated without a rebuild; an error in production pages someone.
-
-### Phase 5 — Persistence ⛔
-Schema in ARCHITECTURE §10.1; PostgreSQL recommended (ADR-004). Work: migrations, repository layer, internal write
-endpoints for the agent (`POST /api/internal/captures`, `/places`), retention and erasure jobs, backups.
-*Size:* medium. *Acceptance:* every completed capture is stored once (idempotent on `message_sid`); a user's data can be
-exported and erased.
-
-### Phase 6 — Sign-in and web app ⛔
-WhatsApp-initiated login (ADR-005), places list and map, delete, export. Separate nonce-based CSP; authorisation by
-`user_id` on every query; CSRF protection on mutating routes. *Size:* large.
-
-### Phase 7 — Abuse and cost controls ⛔
-Per-sender and global rate limits with a shared counter; daily AI-run budget with a friendly "come back tomorrow"
-reply; `notify` idempotency. *Size:* small once Phase 5 exists. **Until then, set provider spend caps.**
-
-<a id="decisions-needed-from-you"></a>
-## 3. Decisions needed from you
-
-1. **Licence/provenance** — written permission from the original author, and how to attribute (launch checklist A).
-2. **Database provider and region** (ADR-004), and whether storing phone numbers is acceptable (changes the privacy policy).
-3. **Production WhatsApp sender** — number and display name.
-4. **Final domain** and the contact mailbox.
-5. **Spend limits** you are comfortable with for the AI provider and Twilio.
-6. **Whether to move secrets to AWS Secrets Manager now** (ADR-001) or after launch.
-
-## 4. What changed in this iteration
-
-* **Security:** media download hardened (host allow-list, SSRF guard, no credential forwarding, streamed size cap, real
-  type detection); constant-time auth without length leak; generic error messages; PII-safe logging (a real leak of a
-  number inside a third-party error message was found by a test and fixed); body-size limits; hard time budgets.
-* **Reliability:** user is told when processing fails (Twilio does not retry 5xx); precise `notify` error semantics;
-  grapheme-safe truncation (the old `slice` could cut an emoji in half and produce an invalid message).
-* **Site:** new pages, SEO and AEO surfaces, strict CSP, brand assets.
-* **Tooling:** tests, lint, typecheck, CI, audit gate, config gate, header generator, smoke and e2e scripts.
-* **Docs:** this set. The earlier README, PRD and Technical Spec remain as written, with corrections noted below.
-
-## 5. Corrections to the earlier documents
+## 4. Corrections made to the earlier documents
 
 | Where | It said | Reality |
 | --- | --- | --- |
-| README, PRE-README, Technical Spec | A 5xx makes Twilio retry; a 4xx would cause retries | Twilio's default retry policy covers connection failures only. Patched in README; see ADR-003 |
+| README, PRE-README, Technical Spec | A 5xx makes Twilio retry; a 4xx would cause retries | Twilio's default retry policy covers connection failures only (ADR-003) |
 | Technical Spec | `.env` written during the Amplify build | No longer written; variables reach the build as environment variables |
-| Earlier `robots.txt` | Allowed everything including `/api/` | Replaced by a generated file that disallows `/api/` and links the sitemap |
-| `.gitignore` vs git | `node_modules`, `.output`, `.nuxt` were ignored | They were **committed** on `main` (~25,000 files). Remove them (launch checklist E) |
+| Earlier `robots.txt` | Allowed everything including `/api/` | Generated; disallows `/api/` and `/app`, links the sitemap |
+| `.gitignore` vs git | `node_modules`, `.output`, `.nuxt` were ignored | They were **committed** on `main` (~25,000 files); remove them (checklist E) |
+| My own v0.1 privacy policy | "does not store your messages in a database" | Now false in spirit (phone numbers and saved places are stored); **rewritten** |
 
-## 6. Verification evidence
+## 5. Verification evidence
 
 | Check | Result |
 | --- | --- |
 | `npm ci` with stock npm 10 | ✅ reproducible |
 | `npm run lint` · `npm run typecheck` | ✅ clean |
-| `npm run test:coverage` | ✅ 224 tests; thresholds met (lines/functions ≥ 90 %, branches ≥ 80 %) |
-| Mutation checks (signature, internal auth, credential forwarding, deadline) | ✅ each caught by the tests |
+| `npm run test:coverage` | ✅ 518 tests; thresholds met (lines/functions ≥ 90 %, branches ≥ 80 %) |
+| Database tests | ✅ run against a **real PostgreSQL 16**, in isolated schemas; they fail (not skip) if it is unreachable |
+| Mutation checks | ✅ each disabled security control was caught (signature, internal auth, credential forwarding, deadlines, owner check, browser binding, rate limits, sign-in interception, CSRF, URL filter, stale-poll guard, capture scoping) |
 | `npm run audit:gate` | ✅ passes; fails correctly when an exception is removed or expired |
-| Production build, Amplify preset | ✅ runtime `nodejs22.x`; home page has no executable script |
-| `npm run smoke` against the built server | ✅ 25/25 (26 over HTTPS) |
-| `npm run e2e:local` | ✅ real signature in; Trigger.dev wire format, auth and idempotency verified; outage → 502; logs leak-free |
-| YAML (`amplify.yml`, workflows) | ✅ parsed (this caught a real error in an inline command) |
-| Mermaid diagrams | ✅ parsed by the real Mermaid parser |
+| Production build, Amplify preset | ✅ runtime `nodejs22.x`; public pages have no executable script; `/app` has exactly one same-origin module script |
+| `npm run smoke` against the built server | ✅ 38/38 |
+| `npm run e2e:local` (real PostgreSQL, mock Trigger.dev, real signatures) | ✅ 43 checks, repeatable |
+| YAML, Mermaid, markdown links | ✅ parsed / resolved |
 
-**Not verifiable here:** real Twilio/WhatsApp/Trigger.dev/AWS behaviour, Lighthouse/axe, Search Console. See
-[`LAUNCH-CHECKLIST.md`](LAUNCH-CHECKLIST.md).
+**Not verifiable here:** real Twilio/WhatsApp/Trigger.dev/AWS/managed-Postgres behaviour, real mobile browsers, Lighthouse/axe,
+Search Console. See [`LAUNCH-CHECKLIST.md`](LAUNCH-CHECKLIST.md).
